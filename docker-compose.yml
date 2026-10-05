@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apng-audit:latest
+    environment:
+      # Container-internal listen port; the image healthcheck honors it.
+      PORT: "8080"
+    ports:
+      # Host-side port is configurable: HOST_PORT=9090 docker compose up web
+      - "${HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request,sys; p=os.environ.get('PORT','8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/health', timeout=2).status == 200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    restart: unless-stopped
+
+  # One-shot acceptance service: on a clean `docker compose up` it waits for
+  # the web service to be healthy, runs the test suite and the build check,
+  # submits a valid and a sequence-corrupted animation, summarizes everything
+  # via its exit code and exits. Inspect with:
+  #   docker compose up --build verify ; docker compose logs verify
+  verify:
+    image: apng-audit:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      SERVICE_URL: "http://web:8080"
+    command: ["python", "verify.py"]
+    restart: "no"
